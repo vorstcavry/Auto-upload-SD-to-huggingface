@@ -151,9 +151,9 @@ def on_app_started(_: gr.Blocks, __):
     # Create Dataset Repo if haven't
     try:
         dataset_url = api.create_repo(
-            repo_id=user_repo, private=True, repo_type="dataset", token=token
+            repo_id=user_repo, private=False, repo_type="dataset", token=token
         )
-        print("[HF Out] Created Private HF Dataset Repo: ", dataset_url)
+        print("[HF Out] Created Public HF Dataset Repo: ", dataset_url)
 
     except HfHubHTTPError as e:
         if "already created" in e.server_message:
@@ -165,7 +165,7 @@ def on_app_started(_: gr.Blocks, __):
     try:
         space_url = api.create_repo(
             repo_id=user_repo + "_gallery",
-            private=True,
+            private=False,
             repo_type="space",
             space_sdk="gradio",
             token=token,
@@ -184,7 +184,7 @@ def on_app_started(_: gr.Blocks, __):
         )
         # api.restart_space(repo_id=user_repo + "_gallery", token=token)
 
-        print("[HF Out] Created Private HF Space: ", space_url)
+        print("[HF Out] Created Public HF Space: ", space_url)
         print(
             "[HF Out] Newly created space can be used to view ur generations! But it took a while to build for the first time (depends on how busy HF server is)..."
         )

@@ -4,7 +4,6 @@ import os
 import shutil
 from huggingface_hub import HfApi, snapshot_download
 
-
 HF_TOKEN = os.environ["HF_TOKEN"]
 
 if not HF_TOKEN:
@@ -14,7 +13,6 @@ api = HfApi()
 username = api.whoami(token=HF_TOKEN)["name"]
 repo = "sd_out"
 user_repo = f"{username}/{repo}"
-
 
 def refresh_images():
     """
@@ -36,19 +34,18 @@ def refresh_images():
 
     image_files = list(Path(image_dir).rglob("*.[pjw]*[npjg]*[ge]*"))
 
-    return image_files
-
+    return [str(img) for img in image_files]
 
 with gr.Blocks(
     analytics_enabled=False, title="Image Gallery", theme="NoCrypt/miku"
 ) as demo:
     gr.HTML("""<center><h1>Image Gallery</h1></center>""")
     submit = gr.Button("Refresh", variant="primary")
+
     gallery = gr.Gallery(
-        value="", columns=4, show_label=False, height=800, object_fit="contain"
+        value=[], columns=4, show_label=False, height=800, object_fit="contain"
     )
 
     submit.click(refresh_images, outputs=[gallery])
-
 
 demo.launch(debug=True)

@@ -15,12 +15,6 @@ repo = "sd_out"
 user_repo = f"{username}/{repo}"
 
 def refresh_images():
-    """
-    Refreshes the images by deleting the existing image directory and retrieving new images.
-
-    Returns:
-        A list of image files.
-    """
     try:
         shutil.rmtree(os.environ["IMAGE_DIR"])
     except:
@@ -29,12 +23,21 @@ def refresh_images():
     image_dir = Path(
         snapshot_download(repo_id=user_repo, repo_type="dataset", token=HF_TOKEN)
     )
-
     os.environ["IMAGE_DIR"] = str(image_dir)
 
     image_files = list(Path(image_dir).rglob("*.[pjw]*[npjg]*[ge]*"))
 
-    return [str(img) for img in image_files]
+    local_dir = Path("images")
+    local_dir.mkdir(exist_ok=True)
+
+    copied_files = []
+    for img in image_files:
+        dst = local_dir / img.name
+        shutil.copy(img, dst)
+        copied_files.append(str(dst))
+
+    return copied_files
+
 
 with gr.Blocks(
     analytics_enabled=False, title="Image Gallery", theme="NoCrypt/miku"
@@ -49,3 +52,5 @@ with gr.Blocks(
     submit.click(refresh_images, outputs=[gallery])
 
 demo.launch(debug=True)
+
+

@@ -1,205 +1,54 @@
 import gradio as gr
-from modules import shared, script_callbacks, paths, extensions
-from huggingface_hub import HfApi, get_token_permission
-from huggingface_hub.utils import HfHubHTTPError
-from requests import HTTPError
 from pathlib import Path
 import os
+import shutil
+from huggingface_hub import HfApi, snapshot_download
 
-root_path = paths.script_path
+HF_TOKEN = os.environ["HF_TOKEN"]
+
+if not HF_TOKEN:
+    raise ValueError("HF_TOKEN not set")
+
 api = HfApi()
-username = ""
+username = api.whoami(token=HF_TOKEN)["name"]
 repo = "sd_out"
-user_repo = ""
-enabled = False
-token = ""
+user_repo = f"{username}/{repo}"
+
+def refresh_images():
+    try:
+        shutil.rmtree(os.environ["IMAGE_DIR"])
+    except:
+        pass
+
+    image_dir = Path(
+        snapshot_download(repo_id=user_repo, repo_type="dataset", token=HF_TOKEN)
+    )
+    os.environ["IMAGE_DIR"] = str(image_dir)
+
+    image_files = list(Path(image_dir).rglob("*.[pjw]*[npjg]*[ge]*"))
+
+    local_dir = Path("images")
+    local_dir.mkdir(exist_ok=True)
+
+    copied_files = []
+    for img in image_files:
+        dst = local_dir / img.name
+        shutil.copy(img, dst)
+        copied_files.append(str(dst))
+
+    return copied_files
 
 
-def get_self_extension_path() -> str:
-    """
-    Returns the path of the active extension that contains the current file.
+with gr.Blocks(
+    analytics_enabled=False, title="Image Gallery", theme="NoCrypt/miku"
+) as demo:
+    gr.HTML("""<center><h1>Image Gallery</h1></center>""")
+    submit = gr.Button("Refresh", variant="primary")
 
-    This function checks if the global variable '__file__' exists, and if so,
-    assigns its value to the 'filepath' variable. Otherwise, it imports the
-    'inspect' module and uses the 'getfile' function to get the path of the
-    current file.
-
-    It then iterates over the active extensions and checks if the path of each
-    extension is a substring of the 'filepath'. If a match is found, the path
-    of the extension is returned.
-
-    Returns:
-        str: The path of the active extension that contains the current file.
-    """
-    if "__file__" in globals():
-        filepath = __file__
-    else:
-        import inspect
-
-        filepath = inspect.getfile(lambda: None)
-    for ext in extensions.active():
-        if ext.path in filepath:
-            return ext.path
-
-
-def on_image_saved(params):
-    """
-    Saves an image to a remote repository if the `enabled` flag is set to True and the `enable_hf_out` option is enabled.
-
-    Parameters:
-    - params: A dictionary containing information about the image to be saved.
-
-    Returns:
-    - None
-
-    Raises:
-    - HTTPError: If there was an error while uploading the image.
-    """
-    global username, api, user_repo, enabled, token
-
-    if not enabled:
-        return
-
-    if not shared.opts.enable_hf_out:
-        return
-
-    print("[HF Out] Uploading Image without slowing down generation...")
-
-    full_path = os.path.join(root_path, params.filename)
-    api.upload_file(
-        repo_id=user_repo,
-        path_or_fileobj=full_path,
-        path_in_repo=os.path.join("data", os.path.basename(full_path)),
-        token=token,
-        run_as_future=True,
-        repo_type="dataset",
+    gallery = gr.Gallery(
+        value=[], columns=4, show_label=False, height=800, object_fit="contain"
     )
 
+    submit.click(refresh_images, outputs=[gallery])
 
-def on_ui_settings():
-    """
-    A function to handle UI settings.
-
-    This function adds an option to the shared `opts` object. The option is called `enable_hf_out` and it is of type `shared.OptionInfo`. The default value of the option is `True`. The option is used to enable the "Save to HF" feature, which requires the `hf-token-out` parameter to be provided. If the `hf-token-out` parameter is not provided, the option will be ignored.
-
-    Parameters:
-        None
-
-    Return:
-        None
-    """
-    shared.opts.add_option(
-        "enable_hf_out",
-        shared.OptionInfo(
-            True,
-            "Enable Save to HF (hf-token-out required else ignored)",
-            section=("hf_out", "HF Out"),
-        ),
-    )
-
-
-def on_app_started(_: gr.Blocks, __):
-    """
-    Initializes the extension when it starts.
-
-    This function performs the following tasks:
-    - Sets global variables: `username`, `api`, `user_repo`, `enabled`, and `token`.
-    - Checks if a HF Token is provided. If not, it prints a message and disables HF Out.
-    - Sets the `token` variable to the provided HF Token.
-    - Checks the permission of the token. If it has "read" permission, it prints a message and returns.
-    - Retrieves the username using the `api.whoami()` function and the provided HF Token.
-    - Creates a Dataset Repo if it doesn't exist. It sets the `dataset_url` variable to the created repo URL.
-    - Creates a Space Repo if it doesn't exist. It sets the `space_url` variable to the created repo URL.
-    - Adds a secret key `HF_TOKEN` to the Space Repo.
-    - Uploads a file `gallery_space.py` to the Space Repo.
-    - Restarts the Space Repo.
-    - Sets the `enabled` variable to `True`.
-    - Prints a message that the extension is ready to roll.
-
-    This function takes no parameters and has no return value.
-    """
-    global username, api, user_repo, enabled, token, user_repo, repo
-
-    if not shared.cmd_opts.hf_token_out:
-        print("[HF Out] No HF Token provided. HF Out will be disabled.")
-        return
-
-    token = shared.cmd_opts.hf_token_out
-
-    # validate the token
-    try:
-      api.whoami(token=token)
-    except HTTPError as e:
-      if "Invalid user token" in str(e):
-        print("[HF Out] Invalid HF Token provided. HF Out will be disabled.")
-        return
-      else:
-        print(str(e))
-    except Exception as e:
-      print(str(e))
-
-
-    if get_token_permission(token) == "read":
-        print(
-            "[HF Out] Token permission was on 'READ'. Please provide a 'WRITE' token."
-        )
-        return
-
-    username = api.whoami(token=shared.cmd_opts.hf_token_out)["name"]
-    user_repo = f"{username}/{repo}"
-
-    # Create Dataset Repo if haven't
-    try:
-        dataset_url = api.create_repo(
-            repo_id=user_repo, private=False, repo_type="dataset", token=token
-        )
-        print("[HF Out] Created Public HF Dataset Repo: ", dataset_url)
-
-    except HfHubHTTPError as e:
-        if "already created" in e.server_message:
-          print("[HF Out] Dataset Repo already exists. Skipping.")
-        else:
-          print(str(e))
-
-    # Create Space Repo if haven't
-    try:
-        space_url = api.create_repo(
-            repo_id=user_repo + "_gallery",
-            private=False,
-            repo_type="space",
-            space_sdk="gradio",
-            token=token,
-        )
-        # if the repo doesnt exist, create it, and set it up
-        api.add_space_secret(
-            repo_id=user_repo + "_gallery", key="HF_TOKEN", value=token, token=token
-        )
-        api.upload_file(
-            repo_id=user_repo + "_gallery",
-            path_or_fileobj=os.path.join(get_self_extension_path(), "gallery_space.py"),
-            path_in_repo="app.py",
-            token=token,
-            run_as_future=True,
-            repo_type="space",
-        )
-        # api.restart_space(repo_id=user_repo + "_gallery", token=token)
-
-        print("[HF Out] Created Public HF Space: ", space_url)
-        print(
-            "[HF Out] Newly created space can be used to view ur generations! But it took a while to build for the first time (depends on how busy HF server is)..."
-        )
-        print("[HF Out] If it stucked, Go to settings > make public > factory reboot")
-    except HfHubHTTPError as e:
-        if "already created" in e.server_message:
-          print("[HF Out] Space Repo already exists. Skipping.")
-        else:
-          print(str(e))
-
-
-    enabled = True
-    print("[HF Out] Ready to roll!")
-
-
-script_callbacks.on_app_started(on_app_started)
-script_callbacks.on_ui_settings(on_ui_settings)
-script_callbacks.on_image_saved(on_image_saved)
+demo.launch(debug=True)
